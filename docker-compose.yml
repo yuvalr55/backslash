@@ -1,0 +1,26 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      GRAPH_DATA_PATH: ./data/graph.json
+      REQUEST_LOGGING_ENABLED: ${REQUEST_LOGGING_ENABLED:-true}
+      MAX_GRAPH_DEPTH: ${MAX_GRAPH_DEPTH:-50}
+    volumes:
+      # Bind-mount the data directory so the graph can be updated without
+      # rebuilding the image. Remove this block to use the baked-in copy.
+      - ./data:/app/data:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped

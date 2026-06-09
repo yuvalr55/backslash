@@ -1,0 +1,505 @@
+{
+  "info": {
+    "_postman_id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+    "name": "Backslash Graph API",
+    "description": "Query engine for the Train Ticket microservice dependency graph.\n\nSet `baseUrl` in the collection variables to point at your running instance (default: http://localhost:3000).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "GET /health",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            },
+            "description": "Liveness probe. Always returns 200 if the process is running."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('body has status ok', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.status).to.eql('ok');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /ready",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/ready",
+              "host": ["{{baseUrl}}"],
+              "path": ["ready"]
+            },
+            "description": "Readiness probe. Returns 200 when the graph is loaded, 503 if not."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200 or 503', () => {",
+                  "  pm.expect(pm.response.code).to.be.oneOf([200, 503]);",
+                  "});",
+                  "pm.test('body has status field', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body).to.have.property('status');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Graph — No Filter",
+      "item": [
+        {
+          "name": "GET /graph (full graph)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/graph",
+              "host": ["{{baseUrl}}"],
+              "path": ["graph"]
+            },
+            "description": "Returns the complete graph with no filters applied. Response includes all reachable nodes and edges derived from DFS-enumerated routes."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('response has nodes, edges, and meta', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.nodes).to.be.an('array').and.have.length.above(0);",
+                  "  pm.expect(body.edges).to.be.an('array').and.have.length.above(0);",
+                  "  pm.expect(body.meta).to.be.an('object');",
+                  "  pm.expect(body.meta.appliedFilters).to.eql([]);",
+                  "  pm.expect(body.meta.routeCount).to.be.above(0);",
+                  "  pm.expect(body.meta.nodeCount).to.eql(body.nodes.length);",
+                  "  pm.expect(body.meta.edgeCount).to.eql(body.edges.length);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Graph — Single Filters",
+      "item": [
+        {
+          "name": "GET /graph?publicExposed=true",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/graph?publicExposed=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["graph"],
+              "query": [
+                {
+                  "key": "publicExposed",
+                  "value": "true",
+                  "description": "Only routes whose first node has publicExposed: true"
+                }
+              ]
+            },
+            "description": "Filters to routes that start at a publicly-exposed service (publicExposed: true). In the train-ticket graph these are `frontend` and `gateway-service`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('publicExposed filter is active', () => {",
+                  "  const meta = pm.response.json().meta;",
+                  "  pm.expect(meta.appliedFilters).to.include('publicExposed');",
+                  "});",
+                  "pm.test('all returned nodes include at least one public entry point', () => {",
+                  "  const nodes = pm.response.json().nodes;",
+                  "  const publicNodes = nodes.filter(n => n.publicExposed === true);",
+                  "  pm.expect(publicNodes.length).to.be.above(0);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /graph?sink=true",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/graph?sink=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["graph"],
+              "query": [
+                {
+                  "key": "sink",
+                  "value": "true",
+                  "description": "Only routes that terminate at a sink node (kind != 'service', e.g. rds, sqs)"
+                }
+              ]
+            },
+            "description": "Filters to routes that end at a sink node (any node where `kind` is not `'service'`). In the train-ticket graph the sinks are `prod-postgresdb` (rds) and `prod-sqs` (sqs)."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('sink filter is active', () => {",
+                  "  const meta = pm.response.json().meta;",
+                  "  pm.expect(meta.appliedFilters).to.include('sink');",
+                  "});",
+                  "pm.test('response includes at least one non-service (sink) node', () => {",
+                  "  const nodes = pm.response.json().nodes;",
+                  "  const sinkNodes = nodes.filter(n => n.kind !== 'service');",
+                  "  pm.expect(sinkNodes.length).to.be.above(0);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /graph?vulnerability=true",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/graph?vulnerability=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["graph"],
+              "query": [
+                {
+                  "key": "vulnerability",
+                  "value": "true",
+                  "description": "Only routes that pass through at least one node with a known vulnerability"
+                }
+              ]
+            },
+            "description": "Filters to routes containing at least one vulnerable node. In the train-ticket graph `auth-service` and `order-service` carry vulnerabilities."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('vulnerability filter is active', () => {",
+                  "  const meta = pm.response.json().meta;",
+                  "  pm.expect(meta.appliedFilters).to.include('vulnerability');",
+                  "});",
+                  "pm.test('response includes at least one node with vulnerabilities', () => {",
+                  "  const nodes = pm.response.json().nodes;",
+                  "  const vulnNodes = nodes.filter(n => n.vulnerabilities && n.vulnerabilities.length > 0);",
+                  "  pm.expect(vulnNodes.length).to.be.above(0);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /graph?publicExposed=false (no-op)",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/graph?publicExposed=false",
+              "host": ["{{baseUrl}}"],
+              "path": ["graph"],
+              "query": [
+                {
+                  "key": "publicExposed",
+                  "value": "false",
+                  "description": "false is treated as 'no filter' — returns full graph"
+                }
+              ]
+            },
+            "description": "Passing `false` for any filter is a no-op: the full graph is returned and the filter does not appear in `meta.appliedFilters`."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('appliedFilters is empty — false is a no-op', () => {",
+                  "  const meta = pm.response.json().meta;",
+                  "  pm.expect(meta.appliedFilters).to.eql([]);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Graph — Combined Filters",
+      "item": [
+        {
+          "name": "GET /graph?publicExposed=true&sink=true",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/graph?publicExposed=true&sink=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["graph"],
+              "query": [
+                { "key": "publicExposed", "value": "true" },
+                { "key": "sink", "value": "true" }
+              ]
+            },
+            "description": "Routes that originate from a public entry point AND terminate at a database/queue sink. In the train-ticket topology these two filters produce no overlap (public services don't have direct paths to sinks), so an empty graph is a valid result."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('both filters are active', () => {",
+                  "  const filters = pm.response.json().meta.appliedFilters;",
+                  "  pm.expect(filters).to.include('publicExposed');",
+                  "  pm.expect(filters).to.include('sink');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /graph?publicExposed=true&vulnerability=true",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/graph?publicExposed=true&vulnerability=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["graph"],
+              "query": [
+                { "key": "publicExposed", "value": "true" },
+                { "key": "vulnerability", "value": "true" }
+              ]
+            },
+            "description": "Routes from public entry points that pass through at least one vulnerable service — the highest-risk attack paths."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('both filters are active', () => {",
+                  "  const filters = pm.response.json().meta.appliedFilters;",
+                  "  pm.expect(filters).to.include('publicExposed');",
+                  "  pm.expect(filters).to.include('vulnerability');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /graph?sink=true&vulnerability=true",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/graph?sink=true&vulnerability=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["graph"],
+              "query": [
+                { "key": "sink", "value": "true" },
+                { "key": "vulnerability", "value": "true" }
+              ]
+            },
+            "description": "Routes that reach a data sink AND pass through a vulnerable node — paths where an exploited vulnerability could lead to data exfiltration."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('both filters are active', () => {",
+                  "  const filters = pm.response.json().meta.appliedFilters;",
+                  "  pm.expect(filters).to.include('sink');",
+                  "  pm.expect(filters).to.include('vulnerability');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /graph?publicExposed=true&sink=true&vulnerability=true",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/graph?publicExposed=true&sink=true&vulnerability=true",
+              "host": ["{{baseUrl}}"],
+              "path": ["graph"],
+              "query": [
+                { "key": "publicExposed", "value": "true" },
+                { "key": "sink", "value": "true" },
+                { "key": "vulnerability", "value": "true" }
+              ]
+            },
+            "description": "All three filters combined: routes from public entry points, through a vulnerable service, terminating at a data sink. The critical-risk blast-radius query."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', () => pm.response.to.have.status(200));",
+                  "pm.test('all three filters are active', () => {",
+                  "  const filters = pm.response.json().meta.appliedFilters;",
+                  "  pm.expect(filters).to.include('publicExposed');",
+                  "  pm.expect(filters).to.include('sink');",
+                  "  pm.expect(filters).to.include('vulnerability');",
+                  "});",
+                  "pm.test('routeCount is present', () => {",
+                  "  pm.expect(pm.response.json().meta.routeCount).to.be.a('number');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Error Cases",
+      "item": [
+        {
+          "name": "GET /graph?unknown=foo → 400 INVALID_QUERY_PARAM",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/graph?unknown=foo",
+              "host": ["{{baseUrl}}"],
+              "path": ["graph"],
+              "query": [
+                { "key": "unknown", "value": "foo" }
+              ]
+            },
+            "description": "Any query parameter that is not one of the three known filter keys is rejected with 400."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));",
+                  "pm.test('error code is INVALID_QUERY_PARAM', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.error.code).to.eql('INVALID_QUERY_PARAM');",
+                  "  pm.expect(body.error.message).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /graph?sink=yes → 400 INVALID_BOOLEAN",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/graph?sink=yes",
+              "host": ["{{baseUrl}}"],
+              "path": ["graph"],
+              "query": [
+                { "key": "sink", "value": "yes" }
+              ]
+            },
+            "description": "Filter values must be exactly `'true'` or `'false'`. Any other string returns 400."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', () => pm.response.to.have.status(400));",
+                  "pm.test('error code is INVALID_BOOLEAN', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.error.code).to.eql('INVALID_BOOLEAN');",
+                  "  pm.expect(body.error.message).to.include('true');",
+                  "  pm.expect(body.error.message).to.include('false');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET /nonexistent → 404 NOT_FOUND",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{baseUrl}}/nonexistent",
+              "host": ["{{baseUrl}}"],
+              "path": ["nonexistent"]
+            },
+            "description": "Any route not registered by the application returns 404 with the standard error envelope."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 404', () => pm.response.to.have.status(404));",
+                  "pm.test('error code is NOT_FOUND', () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.error.code).to.eql('NOT_FOUND');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

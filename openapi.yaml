@@ -1,0 +1,269 @@
+openapi: 3.1.0
+info:
+  title: Backslash Microservice Graph API
+  version: 1.0.0
+  description: >
+    Loads a microservice dependency graph and exposes a composable filter API
+    over it. Filters operate on complete source-to-sink routes (DFS paths),
+    and multiple filters are combined via set intersection on a pre-built
+    inverted index — O(min matching set size) per request.
+
+servers:
+  - url: http://localhost:3000
+    description: Local development
+
+paths:
+  /health:
+    get:
+      summary: Liveness probe
+      description: Returns 200 if the process is up, regardless of graph state.
+      operationId: getHealth
+      responses:
+        '200':
+          description: Process is alive
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusOk'
+
+  /ready:
+    get:
+      summary: Readiness probe
+      description: Returns 200 only after the graph has been loaded and initialised.
+      operationId: getReady
+      responses:
+        '200':
+          description: Graph is loaded and ready to serve requests
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatusReady'
+        '503':
+          description: Graph not yet initialised
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /graph:
+    get:
+      summary: Query the microservice graph
+      description: >
+        Returns a deduplicated subgraph of nodes and edges derived from all
+        routes that pass the active filters. Without any filters, returns the
+        full graph. Filters are composable — any combination may be used.
+      operationId: getGraph
+      parameters:
+        - name: publicExposed
+          in: query
+          description: >
+            `true` — only routes whose root node has `publicExposed: true`.
+            `false` — no-op (not an inversion).
+          schema:
+            type: string
+            enum: [true, false]
+        - name: sink
+          in: query
+          description: >
+            `true` — only routes whose leaf node has `kind` other than
+            `service` (e.g. `rds`, `sqs`).
+            `false` — no-op.
+          schema:
+            type: string
+            enum: [true, false]
+        - name: vulnerability
+          in: query
+          description: >
+            `true` — only routes that contain at least one node with a
+            non-empty `vulnerabilities` array.
+            `false` — no-op.
+          schema:
+            type: string
+            enum: [true, false]
+      responses:
+        '200':
+          description: Filtered graph
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GraphResponse'
+              examples:
+                full:
+                  summary: No filters applied
+                  value:
+                    nodes:
+                      - name: frontend
+                        kind: service
+                        language: java
+                        path: train-ticket/frontend
+                        publicExposed: true
+                    edges:
+                      - from: frontend
+                        to: admin-basic-info-service
+                    meta:
+                      appliedFilters: []
+                      routeCount: 42
+                      nodeCount: 38
+                      edgeCount: 51
+                filtered:
+                  summary: publicExposed + sink
+                  value:
+                    nodes:
+                      - name: frontend
+                        kind: service
+                        publicExposed: true
+                      - name: ts-order-mongo
+                        kind: rds
+                    edges:
+                      - from: frontend
+                        to: ts-order-mongo
+                    meta:
+                      appliedFilters: [publicExposed, sink]
+                      routeCount: 3
+                      nodeCount: 5
+                      edgeCount: 4
+        '400':
+          description: Unknown query parameter or non-boolean value
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                unknownParam:
+                  summary: Unknown parameter
+                  value:
+                    error:
+                      code: INVALID_QUERY_PARAM
+                      message: "Unknown query parameter(s): 'foo'"
+                invalidBoolean:
+                  summary: Non-boolean value
+                  value:
+                    error:
+                      code: INVALID_BOOLEAN
+                      message: "'sink' must be 'true' or 'false', got 'yes'"
+        '404':
+          description: Route not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Unexpected server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+components:
+  schemas:
+    StatusOk:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: ok
+
+    StatusReady:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: ready
+
+    Vulnerability:
+      type: object
+      required: [file, severity, message]
+      properties:
+        file:
+          type: string
+        severity:
+          type: string
+          example: high
+        message:
+          type: string
+        metadata:
+          type: object
+          additionalProperties:
+            type: string
+
+    GraphNode:
+      type: object
+      required: [name, kind]
+      properties:
+        name:
+          type: string
+          example: frontend
+        kind:
+          type: string
+          enum: [service, rds, sqs]
+        language:
+          type: string
+          example: java
+        path:
+          type: string
+          example: train-ticket/frontend
+        publicExposed:
+          type: boolean
+        vulnerabilities:
+          type: array
+          items:
+            $ref: '#/components/schemas/Vulnerability'
+
+    GraphEdge:
+      type: object
+      required: [from, to]
+      properties:
+        from:
+          type: string
+        to:
+          type: string
+
+    GraphMeta:
+      type: object
+      required: [appliedFilters, routeCount, nodeCount, edgeCount]
+      properties:
+        appliedFilters:
+          type: array
+          items:
+            type: string
+          example: [publicExposed, sink]
+        routeCount:
+          type: integer
+          example: 42
+        nodeCount:
+          type: integer
+          example: 38
+        edgeCount:
+          type: integer
+          example: 51
+
+    GraphResponse:
+      type: object
+      required: [nodes, edges, meta]
+      properties:
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/GraphNode'
+        edges:
+          type: array
+          items:
+            $ref: '#/components/schemas/GraphEdge'
+        meta:
+          $ref: '#/components/schemas/GraphMeta'
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [INVALID_BOOLEAN, INVALID_QUERY_PARAM, INTERNAL_ERROR, NOT_FOUND]
+            message:
+              type: string
